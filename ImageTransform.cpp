@@ -19,6 +19,14 @@ Email:
 
 using uiuc::PNG;
 using uiuc::HSLAPixel;
+using uiuc::Illini;
+using uiuc::ComplementaryColorScheme;
+
+const int MAXIMUM_PIXEL_AWAY = 160;
+const double LUMINANCE_DECREMENT_FACTOR_MORE_THAN_MAX_PIXEL_AWAY = 0.8;
+const double LUMINANCE_DECREMENT_FACTOR_LESS_THAN_MAX_PIXEL_AWAY = 0.005;
+const double LUMINANCE_INCREMENT_FACTOR = 0.2;
+const double MAXIMUM_LUMINANCE = 1.0;
 
 /**
  * Returns an image that has been transformed to grayscale.
@@ -32,7 +40,7 @@ PNG grayscale(PNG image) {
   /// interact with our PNG class.
   for (unsigned x = 0; x < image.width(); x++) {
     for (unsigned y = 0; y < image.height(); y++) {
-      HSLAPixel & pixel = image.getPixel(x, y);
+      HSLAPixel& pixel = image.getPixel(x, y);
 
       // `pixel` is a reference to the memory stored inside of the PNG `image`,
       // which means you're changing the image directly. No need to `set`
@@ -44,7 +52,36 @@ PNG grayscale(PNG image) {
   return image;
 }
 
+/**
+ * Returns eucledian distance of given coordinates and its respective center.
+ *
+ * @param x
+ * @param y
+ * @param centerX
+ * @param centerY
+ *
+ * @return eucledian distance
+ */
+inline double eucledianDistanceOf(
+  const unsigned& x, const unsigned& y,
+  const int& centerX, const int& centerY) {
+  auto newX = x - centerX;
+  auto newY = y - centerY;
+  return sqrt((newX * newX) + (newY * newY));
+}
 
+inline void updateLuminanceBasedOnDistance(
+  HSLAPixel* pixel, const unsigned& x, const unsigned& y,
+  const int& centerX, const int& centerY) {
+  auto eucledianDistance = eucledianDistanceOf(x, y, centerX, centerY);
+  auto luminanceFactor = 0.0;
+  if (eucledianDistance < MAXIMUM_PIXEL_AWAY) {
+    luminanceFactor = LUMINANCE_DECREMENT_FACTOR_LESS_THAN_MAX_PIXEL_AWAY * eucledianDistance * pixel->l;
+  } else {
+    luminanceFactor = LUMINANCE_DECREMENT_FACTOR_MORE_THAN_MAX_PIXEL_AWAY * pixel->l;
+  }
+  pixel->l = pixel->l - luminanceFactor;
+}
 
 /**
  * Returns an image with a spotlight centered at (`centerX`, `centerY`).
@@ -57,7 +94,7 @@ PNG grayscale(PNG image) {
  * is a total of `sqrt((3 * 3) + (4 * 4)) = sqrt(25) = 5` pixels away and
  * its luminance is decreased by 2.5% (0.975x its original value).  At a
  * distance over 160 pixels away, the luminance will always decreased by 80%.
- * 
+ *
  * The modified PNG is then returned.
  *
  * @param image A PNG object which holds the image data to be modified.
@@ -67,11 +104,45 @@ PNG grayscale(PNG image) {
  * @return The image with a spotlight.
  */
 PNG createSpotlight(PNG image, int centerX, int centerY) {
-
+  for (unsigned x = 0; x < image.width(); x++) {
+    for (unsigned y = 0; y < image.height(); y++) {
+      auto pixel = &image.getPixel(x, y);
+      updateLuminanceBasedOnDistance(pixel, x, y, centerX, centerY);
+    }
+  }
   return image;
-  
 }
- 
+
+/**
+ * Check if hue is within complementary colour scheme.
+ *
+ * @param h Hue of a pixel.
+ *
+ * @return if the pixel with certain hue is within complementary colour scheme.
+ */
+inline bool withinComplementaryColorScheme(const unsigned& h) {
+  return h >= ComplementaryColorScheme::DarkSeaGreen
+    && h < ComplementaryColorScheme::DarkGray;
+}
+
+/**
+ * Get Illini colour of a pixel with certain hue.
+ *
+ * @param h Hue of a pixel.
+ *
+ * @return Illini colour of the pixel.
+ */
+inline int getIlliniColourBasedOnHue(const unsigned& h) {
+  if (withinComplementaryColorScheme(h)) {
+    return Illini::BLUE;
+  }
+  return Illini::ORANGE;
+}
+
+inline void updatePixelWithIlliniColours(HSLAPixel* pixel) {
+  pixel->h = getIlliniColourBasedOnHue(pixel->h);
+  return;
+}
 
 /**
  * Returns a image transformed to Illini colors.
@@ -84,10 +155,24 @@ PNG createSpotlight(PNG image, int centerX, int centerY) {
  * @return The illinify'd image.
 **/
 PNG illinify(PNG image) {
-
+  for (unsigned x = 0; x < image.width(); x++) {
+    for (unsigned y = 0; y < image.height(); y++) {
+      auto pixel = &image.getPixel(x, y);
+      updatePixelWithIlliniColours(pixel);
+    }
+  }
   return image;
 }
- 
+
+inline void updatePixelWithStencil(HSLAPixel* base, HSLAPixel* stencil) {
+  const auto& luminanceIsMaxedOut = stencil->l == MAXIMUM_LUMINANCE;
+  const auto& withinLimit = base->l + LUMINANCE_INCREMENT_FACTOR < MAXIMUM_LUMINANCE;
+  if (luminanceIsMaxedOut && withinLimit) {
+    base->l = base->l + LUMINANCE_INCREMENT_FACTOR;
+  }
+  return;
+}
+
 
 /**
 * Returns an immge that has been watermarked by another image.
@@ -102,6 +187,12 @@ PNG illinify(PNG image) {
 * @return The watermarked image.
 */
 PNG watermark(PNG firstImage, PNG secondImage) {
-
+  for (unsigned x = 0; x < firstImage.width(); x++) {
+    for (unsigned y = 0; y < firstImage.height(); y++) {
+      auto pixel = &firstImage.getPixel(x, y);
+      auto stencil = &secondImage.getPixel(x, y);
+      updatePixelWithStencil(pixel, stencil);
+    }
+  }
   return firstImage;
 }
